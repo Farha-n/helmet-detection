@@ -1,0 +1,14 @@
+venv/
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.log
+
+# Generated data
+violations/
+reports/
+
+# YOLO downloaded weights
+*.pt

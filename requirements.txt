@@ -1,0 +1,5 @@
+opencv-python>=4.9.0
+ultralytics>=8.2.0
+flask>=3.0.0
+numpy>=1.26.0
+openai>=1.30.0
