@@ -1,10 +1,11 @@
 # AI Helmet Detection System
 
-A practical, interview-ready AI safety monitoring project built with YOLO, OpenCV, and Flask.
+A practical, interview-ready web-based AI safety monitoring project built with YOLO, OpenCV, Streamlit, and Flask.
 
 ## What this project does
 
 - Reads live webcam/video stream
+- Web interface for video upload and webcam monitoring
 - Detects people with YOLO
 - Flags safety state as:
   - HELMET
@@ -28,6 +29,7 @@ This project handles that in two modes:
 - Python 3.9-3.11
 - OpenCV
 - Ultralytics YOLO
+- Streamlit
 - Flask
 - Optional OpenAI API integration for AI summaries
 
@@ -46,13 +48,37 @@ venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-3. Run detection app:
+3. Run web app (recommended):
+
+```powershell
+streamlit run streamlit_app.py
+```
+
+4. Open the Streamlit URL shown in terminal, then:
+
+- Upload video and run detection
+- Or run webcam mode (server-side camera)
+- View status, violations, and latest report in UI
+
+5. Run desktop OpenCV app (optional):
 
 ```powershell
 python main.py --source 0 --save-violations
 ```
 
-4. Press `ESC` or `q` to exit camera view.
+6. Press `ESC` or `q` to exit camera view.
+
+## Streamlit web app
+
+Main web app file: `streamlit_app.py`
+
+Features:
+
+- Video upload processing with bounding boxes
+- Webcam batch processing for near-real-time monitoring
+- Violation image saving
+- JSONL safety report logging
+- Latest report viewer in UI
 
 ## Flask API
 
