@@ -2,6 +2,10 @@
 
 A practical, shortlist-ready web-based AI safety monitoring project built with YOLO, OpenCV, Streamlit, and Flask.
 
+## Project
+
+AI-Based Industrial Safety Monitoring System
+
 ## What this project does
 
 - Reads live webcam/video stream
@@ -33,6 +37,14 @@ This project handles that in two modes:
 - Streamlit
 - Flask
 - Optional OpenAI API integration for AI summaries
+
+## Key features
+
+- Real-time object detection using YOLO
+- Helmet compliance monitoring
+- Violation logging system with saved image evidence
+- Web interface using Streamlit
+- AI-based reporting with safety summaries
 
 ## Quick start (Windows)
 
@@ -94,6 +106,8 @@ Features:
 - Webcam batch processing for near-real-time monitoring
 - Violation image saving
 - JSONL safety report logging
+- Sidebar operational metrics (violation events, saved frames, reports)
+- Recent events panel for quick review
 - Latest report viewer in UI
 
 ## Flask API

@@ -13,6 +13,7 @@ from ultralytics import YOLO
 from reporting import generate_report
 
 VIOLATION_SAVE_COOLDOWN_SECONDS = 5
+MAX_RECENT_EVENTS = 20
 
 
 @st.cache_resource
@@ -51,6 +52,106 @@ def append_report(log_file: Path, payload: dict[str, Any]) -> None:
     log_file.parent.mkdir(parents=True, exist_ok=True)
     with log_file.open("a", encoding="utf-8") as fh:
         fh.write(json.dumps(payload) + "\n")
+
+
+def initialize_session_state() -> None:
+    defaults: dict[str, Any] = {
+        "last_status": "",
+        "last_saved_at": dt.datetime.min,
+        "latest_status": "UNKNOWN",
+        "latest_report_summary": "No report generated yet.",
+        "total_reports_generated": 0,
+        "total_violation_events": 0,
+        "saved_violation_frames": 0,
+    }
+    for key, value in defaults.items():
+        if key not in st.session_state:
+            st.session_state[key] = value
+
+    if "recent_events" not in st.session_state:
+        st.session_state["recent_events"] = []
+
+
+def reset_session_metrics() -> None:
+    st.session_state["last_status"] = ""
+    st.session_state["last_saved_at"] = dt.datetime.min
+    st.session_state["latest_status"] = "UNKNOWN"
+    st.session_state["latest_report_summary"] = "No report generated yet."
+    st.session_state["total_reports_generated"] = 0
+    st.session_state["total_violation_events"] = 0
+    st.session_state["saved_violation_frames"] = 0
+    st.session_state["recent_events"] = []
+
+
+def status_label(status: str) -> str:
+    if status == "NO HELMET":
+        return "⚠️ Violation: No Helmet"
+    if status == "HELMET":
+        return "✅ Helmet Compliant"
+    if status == "SAFE":
+        return "✅ Safe"
+    return "ℹ️ Unknown"
+
+
+def render_status_panel(container: Any, status: str, supports_helmet_classes: bool) -> None:
+    mode_text = "Helmet model mode" if supports_helmet_classes else "Fallback mode (no helmet class in model)"
+    message = f"{status_label(status)} | {mode_text}"
+
+    if status == "NO HELMET":
+        container.error(message)
+    elif status in ("HELMET", "SAFE"):
+        container.success(message)
+    else:
+        container.info(message)
+
+
+def render_live_metrics(container: Any, stats: dict[str, Any]) -> None:
+    with container.container():
+        col1, col2, col3 = st.columns(3)
+        col1.metric("Status", stats["status"])
+        col2.metric("People", stats["person_count"])
+        col3.metric("Violations", stats["violation_count"])
+
+
+def render_sidebar_metrics(container: Any, current_stats: dict[str, Any] | None = None) -> None:
+    with container.container():
+        st.subheader("System Metrics")
+
+        col1, col2 = st.columns(2)
+        col1.metric("Violation events", st.session_state["total_violation_events"])
+        col2.metric("Saved frames", st.session_state["saved_violation_frames"])
+
+        col3, col4 = st.columns(2)
+        col3.metric("Reports", st.session_state["total_reports_generated"])
+        col4.metric("Latest status", st.session_state["latest_status"])
+
+        if current_stats is not None:
+            st.caption(
+                f"Live frame: people={current_stats['person_count']}, violations={current_stats['violation_count']}"
+            )
+
+
+def add_recent_event(report: dict[str, Any], saved_image_path: str | None) -> None:
+    event = {
+        "time": report.get("timestamp", "-"),
+        "status": report.get("status", "-"),
+        "violations": report.get("violation_count", 0),
+        "saved_image": saved_image_path or "-",
+    }
+
+    events: list[dict[str, Any]] = st.session_state["recent_events"]
+    events.insert(0, event)
+    st.session_state["recent_events"] = events[:MAX_RECENT_EVENTS]
+
+
+def render_recent_events(container: Any) -> None:
+    with container.container():
+        st.subheader("Recent Events")
+        events: list[dict[str, Any]] = st.session_state["recent_events"]
+        if not events:
+            st.info("No events recorded yet.")
+            return
+        st.dataframe(events, use_container_width=True, hide_index=True)
 
 
 def read_latest_report(log_file: Path) -> dict[str, Any] | None:
@@ -172,6 +273,7 @@ def maybe_report_event(
     if save_violations and stats["violation_count"] > 0 and (now - last_saved_at).total_seconds() >= VIOLATION_SAVE_COOLDOWN_SECONDS:
         saved_image_path = save_violation_frame(frame, output_dir)
         st.session_state["last_saved_at"] = now
+        st.session_state["saved_violation_frames"] += 1
 
     should_log = stats["status"] != last_status or saved_image_path is not None
     if not should_log:
@@ -189,6 +291,13 @@ def maybe_report_event(
     )
     append_report(log_file, report)
     st.session_state["last_status"] = stats["status"]
+    st.session_state["latest_status"] = stats["status"]
+    st.session_state["latest_report_summary"] = report["summary"]
+    st.session_state["total_reports_generated"] += 1
+    if stats["violation_count"] > 0:
+        st.session_state["total_violation_events"] += 1
+    add_recent_event(report, saved_image_path)
+
     return report, saved_image_path
 
 
@@ -201,6 +310,7 @@ def run_video_mode(
     save_violations: bool,
     output_dir: Path,
     log_file: Path,
+    sidebar_metrics_placeholder: Any,
 ) -> None:
     with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as tmp_file:
         tmp_file.write(uploaded_file.read())
@@ -211,10 +321,17 @@ def run_video_mode(
         st.error("Could not open uploaded video.")
         return
 
+    status_placeholder = st.empty()
+    live_metrics_placeholder = st.empty()
     frame_placeholder = st.empty()
-    report_placeholder = st.empty()
+    report_alert_placeholder = st.empty()
+    report_payload_placeholder = st.empty()
+    saved_image_placeholder = st.empty()
+    events_placeholder = st.empty()
     total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
     progress_bar = st.progress(0.0)
+
+    st.subheader("Live Detection Feed")
 
     frame_count = 0
     while True:
@@ -232,17 +349,21 @@ def run_video_mode(
             frame=annotated,
         )
 
-        col1, col2, col3 = st.columns(3)
-        col1.metric("Status", stats["status"])
-        col2.metric("People", stats["person_count"])
-        col3.metric("Violations", stats["violation_count"])
+        render_status_panel(status_placeholder, stats["status"], stats["supports_helmet_classes"])
+        render_live_metrics(live_metrics_placeholder, stats)
+        render_sidebar_metrics(sidebar_metrics_placeholder, stats)
+        render_recent_events(events_placeholder)
 
         frame_placeholder.image(annotated, channels="BGR", use_container_width=True)
 
         if report:
-            report_placeholder.json(report)
+            if stats["violation_count"] > 0:
+                report_alert_placeholder.error(f"AI Report: {report['summary']}")
+            else:
+                report_alert_placeholder.info(f"AI Report: {report['summary']}")
+            report_payload_placeholder.json(report)
         if saved_image_path:
-            st.caption(f"Saved violation frame: {saved_image_path}")
+            saved_image_placeholder.caption(f"Saved violation frame: {saved_image_path}")
 
         frame_count += 1
         if total_frames > 0:
@@ -250,6 +371,7 @@ def run_video_mode(
 
     cap.release()
     tmp_path.unlink(missing_ok=True)
+    render_sidebar_metrics(sidebar_metrics_placeholder)
     st.success("Video processing completed.")
 
 
@@ -263,15 +385,23 @@ def run_webcam_mode(
     save_violations: bool,
     output_dir: Path,
     log_file: Path,
+    sidebar_metrics_placeholder: Any,
 ) -> None:
     cap = cv2.VideoCapture(camera_index)
     if not cap.isOpened():
         st.error("Could not open webcam. Check camera index and permissions.")
         return
 
+    status_placeholder = st.empty()
+    live_metrics_placeholder = st.empty()
     frame_placeholder = st.empty()
-    report_placeholder = st.empty()
+    report_alert_placeholder = st.empty()
+    report_payload_placeholder = st.empty()
+    saved_image_placeholder = st.empty()
+    events_placeholder = st.empty()
     progress_bar = st.progress(0.0)
+
+    st.subheader("Live Detection Feed")
 
     for idx in range(max_frames):
         ok, frame = cap.read()
@@ -288,31 +418,39 @@ def run_webcam_mode(
             frame=annotated,
         )
 
-        col1, col2, col3 = st.columns(3)
-        col1.metric("Status", stats["status"])
-        col2.metric("People", stats["person_count"])
-        col3.metric("Violations", stats["violation_count"])
+        render_status_panel(status_placeholder, stats["status"], stats["supports_helmet_classes"])
+        render_live_metrics(live_metrics_placeholder, stats)
+        render_sidebar_metrics(sidebar_metrics_placeholder, stats)
+        render_recent_events(events_placeholder)
 
         frame_placeholder.image(annotated, channels="BGR", use_container_width=True)
 
         if report:
-            report_placeholder.json(report)
+            if stats["violation_count"] > 0:
+                report_alert_placeholder.error(f"AI Report: {report['summary']}")
+            else:
+                report_alert_placeholder.info(f"AI Report: {report['summary']}")
+            report_payload_placeholder.json(report)
         if saved_image_path:
-            st.caption(f"Saved violation frame: {saved_image_path}")
+            saved_image_placeholder.caption(f"Saved violation frame: {saved_image_path}")
 
         progress_bar.progress((idx + 1) / max_frames)
 
     cap.release()
+    render_sidebar_metrics(sidebar_metrics_placeholder)
     st.success("Webcam batch completed. Run again for continued monitoring.")
 
 
 def main() -> None:
+    initialize_session_state()
+
     st.set_page_config(page_title="AI-Based Industrial Safety Monitoring System", layout="wide")
 
     st.title("AI-Based Industrial Safety Monitoring System")
     st.write("Web-based helmet compliance monitoring with upload and webcam support.")
 
     with st.sidebar:
+        st.title("Controls")
         st.header("Detection Settings")
         model_path = st.text_input("YOLO model path", value="yolov8n.pt")
         confidence = st.slider("Confidence", min_value=0.1, max_value=0.95, value=0.35, step=0.05)
@@ -322,6 +460,14 @@ def main() -> None:
         save_violations = st.checkbox("Save violation frames", value=True)
         output_dir = Path(st.text_input("Violation folder", value="violations"))
         report_file = Path(st.text_input("Report log file", value="reports/safety_log.jsonl"))
+
+        if st.button("Reset session metrics"):
+            reset_session_metrics()
+            st.success("Session metrics reset.")
+
+        sidebar_metrics_placeholder = st.empty()
+
+    render_sidebar_metrics(sidebar_metrics_placeholder)
 
     try:
         model = load_model(model_path)
@@ -346,6 +492,7 @@ def main() -> None:
                 save_violations=save_violations,
                 output_dir=output_dir,
                 log_file=report_file,
+                sidebar_metrics_placeholder=sidebar_metrics_placeholder,
             )
 
     if mode == "Webcam":
@@ -362,7 +509,15 @@ def main() -> None:
                 save_violations=save_violations,
                 output_dir=output_dir,
                 log_file=report_file,
+                sidebar_metrics_placeholder=sidebar_metrics_placeholder,
             )
+
+    st.divider()
+    st.subheader("Automated AI Reporting")
+    if st.session_state["latest_status"] == "NO HELMET":
+        st.error(st.session_state["latest_report_summary"])
+    else:
+        st.info(st.session_state["latest_report_summary"])
 
     st.divider()
     st.subheader("Latest Safety Report")
