@@ -85,12 +85,12 @@ def reset_session_metrics() -> None:
 
 def status_label(status: str) -> str:
     if status == "NO HELMET":
-        return "⚠️ Violation: No Helmet"
+        return "Violation: No Helmet"
     if status == "HELMET":
-        return "✅ Helmet Compliant"
+        return "Helmet Compliant"
     if status == "SAFE":
-        return "✅ Safe"
-    return "ℹ️ Unknown"
+        return "Safe"
+    return "Unknown"
 
 
 def render_status_panel(container: Any, status: str, supports_helmet_classes: bool) -> None:
