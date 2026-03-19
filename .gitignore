@@ -7,8 +7,10 @@ __pycache__/
 *.log
 
 # Generated data
-violations/
-reports/
+violations/*.jpg
+violations/*.jpeg
+violations/*.png
+reports/*.jsonl
 
 # YOLO downloaded weights
 *.pt

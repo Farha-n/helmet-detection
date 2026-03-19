@@ -1,12 +1,13 @@
-# AI Helmet Detection System
+# AI-Based Industrial Safety Monitoring System
 
-A practical, interview-ready web-based AI safety monitoring project built with YOLO, OpenCV, Streamlit, and Flask.
+A practical, shortlist-ready web-based AI safety monitoring project built with YOLO, OpenCV, Streamlit, and Flask.
 
 ## What this project does
 
 - Reads live webcam/video stream
 - Web interface for video upload and webcam monitoring
 - Detects people with YOLO
+- Performs helmet vs no-helmet decision logic per detected person
 - Flags safety state as:
   - HELMET
   - NO HELMET
@@ -51,7 +52,7 @@ pip install -r requirements.txt
 3. Run web app (recommended):
 
 ```powershell
-streamlit run streamlit_app.py
+streamlit run app.py
 ```
 
 4. Open the Streamlit URL shown in terminal, then:
@@ -70,7 +71,22 @@ python main.py --source 0 --save-violations
 
 ## Streamlit web app
 
-Main web app file: `streamlit_app.py`
+Main web app file: `app.py`
+
+Project structure:
+
+```text
+helmet-detection/
+|
+|- app.py
+|- api.py
+|- main.py
+|- reporting.py
+|- violations/
+|- reports/
+|- requirements.txt
+|- README.md
+```
 
 Features:
 
@@ -85,7 +101,7 @@ Features:
 Run API:
 
 ```powershell
-python app.py
+python api.py
 ```
 
 Available endpoints:
